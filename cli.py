@@ -27,7 +27,7 @@ def main():
         params_billion = info["params_billion"]
         hidden_size = info["hidden_size"]
         num_layers = info["num_layers"]
-        print(f"Found: ~{params_billion}B params, hidden_size={hidden_size}, num_layers={num_layers}\n")
+        print(f"Found: ~{info['params_billion']}B params [{info['param_source']}], hidden_size={hidden_size}, num_layers={num_layers}\n")
     else:
         if args.params_billion is None or args.hidden_size is None or args.num_layers is None:
             p.error("Either provide --model, or provide --params-billion, --hidden-size, and --num-layers manually.")
