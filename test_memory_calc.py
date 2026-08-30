@@ -72,3 +72,14 @@ def test_suggest_batch_size_returns_a_smaller_fitting_batch_size():
     )
     assert suggested is not None
     assert suggested >= 1
+def test_flash_attention_uses_less_activation_memory_than_naive():
+    """Flash attention avoids materializing the full N^2 attention score
+    matrix, which should mean noticeably less activation memory,
+    especially at longer sequence lengths."""
+    flash = estimate_training_memory_gb(
+        num_params_billion=7, seq_len=16384, attn_implementation="flash",
+    )
+    naive = estimate_training_memory_gb(
+        num_params_billion=7, seq_len=16384, attn_implementation="naive",
+    )
+    assert flash["activations_gb"] < naive["activations_gb"]

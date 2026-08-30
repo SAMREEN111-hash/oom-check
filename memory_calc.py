@@ -1,10 +1,6 @@
 """
 oom-check: Predict whether a training run will fit on your GPU
 before you actually run it and waste time on a crash.
-
-v2 adds:
-- 8-bit optimizer support (bitsandbytes-style, halves optimizer memory)
-- Batch-size auto-suggestion when a config won't fit
 """
 
 BYTES_PER_DTYPE = {
@@ -35,6 +31,7 @@ def estimate_training_memory_gb(
     lora: bool = False,
     lora_trainable_pct: float = 0.02,
     gradient_checkpointing: bool = False,
+    attn_implementation: str = "flash",
 ):
     bytes_per_param = BYTES_PER_DTYPE.get(dtype, 2)
     num_params = num_params_billion * 1e9
@@ -50,10 +47,20 @@ def estimate_training_memory_gb(
     opt_bytes = OPTIMIZER_BYTES_PER_PARAM.get(optimizer, 8)
     optimizer_gb = (trainable_params * opt_bytes) / 1e9
 
-    activation_factor = 12
-    activations_gb = (
-        batch_size * seq_len * hidden_size * num_layers * activation_factor * bytes_per_param
+    linear_factor = 12
+    linear_activations_gb = (
+        batch_size * seq_len * hidden_size * num_layers * linear_factor * bytes_per_param
     ) / 1e9
+
+    if attn_implementation == "flash":
+        quadratic_activations_gb = 0
+    else:
+        num_heads = max(1, hidden_size // 128)
+        quadratic_activations_gb = (
+            batch_size * num_heads * (seq_len ** 2) * num_layers * bytes_per_param
+        ) / 1e9
+
+    activations_gb = linear_activations_gb + quadratic_activations_gb
 
     if gradient_checkpointing:
         activations_gb = activations_gb / (num_layers ** 0.5)
@@ -84,11 +91,6 @@ def suggest_batch_size(
     hidden_size=4096, num_layers=32, optimizer="adamw", lora=False,
     gradient_checkpointing=False, safety_margin=0.9, max_search=256,
 ):
-    """
-    If the given config doesn't fit, search downward for the largest
-    batch size that DOES fit, so we can tell the user a concrete fix
-    instead of just "no".
-    """
     usable_vram = gpu_vram_gb * safety_margin
     best_fit = None
     for bs in range(max_search, 0, -1):

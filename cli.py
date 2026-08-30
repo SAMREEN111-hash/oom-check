@@ -18,6 +18,7 @@ def main():
     p.add_argument("--optimizer", default="adamw", choices=["adamw", "adamw_8bit", "sgd", "sgd_8bit", "none"])
     p.add_argument("--lora", action="store_true")
     p.add_argument("--gradient-checkpointing", action="store_true")
+    p.add_argument("--attn-implementation", default="flash", choices=["flash", "naive"], help="flash = memory-efficient attention (default, modern), naive = old-style full attention matrix")
 
     args = p.parse_args()
 
@@ -45,13 +46,14 @@ def main():
         optimizer=args.optimizer,
         lora=args.lora,
         gradient_checkpointing=args.gradient_checkpointing,
+        attn_implementation=args.attn_implementation,
     )
 
     print("--- Memory Breakdown ---")
     print(f"  Model weights:     {result['weights_gb']} GB")
     print(f"  Gradients:         {result['gradients_gb']} GB")
     print(f"  Optimizer state:   {result['optimizer_gb']} GB   (optimizer: {args.optimizer})")
-    print(f"  Activations:       {result['activations_gb']} GB")
+    print(f"  Activations:       {result['activations_gb']} GB   (attention: {args.attn_implementation})")
     print(f"  TOTAL:             {result['total_gb']} GB")
     print()
     print(verdict(result["total_gb"], args.gpu_vram_gb))
