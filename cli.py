@@ -1,0 +1,46 @@
+import argparse
+from memory_calc import estimate_training_memory_gb, verdict
+
+
+def main():
+    p = argparse.ArgumentParser(
+        description="Predict whether your training run fits on your GPU, before you run it."
+    )
+    p.add_argument("--params-billion", type=float, required=True, help="Model size in billions of params, e.g. 7 for a 7B model")
+    p.add_argument("--gpu-vram-gb", type=float, required=True, help="Your GPU's VRAM in GB, e.g. 24")
+    p.add_argument("--dtype", default="fp16", choices=["fp32", "fp16", "bf16", "int8", "int4"])
+    p.add_argument("--batch-size", type=int, default=1)
+    p.add_argument("--seq-len", type=int, default=2048)
+    p.add_argument("--hidden-size", type=int, default=4096)
+    p.add_argument("--num-layers", type=int, default=32)
+    p.add_argument("--optimizer", default="adamw", choices=["adamw", "sgd", "none"])
+    p.add_argument("--lora", action="store_true", help="Use LoRA fine-tuning instead of full fine-tune")
+    p.add_argument("--gradient-checkpointing", action="store_true")
+
+    args = p.parse_args()
+
+    result = estimate_training_memory_gb(
+        num_params_billion=args.params_billion,
+        dtype=args.dtype,
+        batch_size=args.batch_size,
+        seq_len=args.seq_len,
+        hidden_size=args.hidden_size,
+        num_layers=args.num_layers,
+        optimizer=args.optimizer,
+        lora=args.lora,
+        gradient_checkpointing=args.gradient_checkpointing,
+    )
+
+    print("\n--- Memory Breakdown ---")
+    print(f"  Model weights:     {result['weights_gb']} GB")
+    print(f"  Gradients:         {result['gradients_gb']} GB")
+    print(f"  Optimizer state:   {result['optimizer_gb']} GB")
+    print(f"  Activations:       {result['activations_gb']} GB")
+    print(f"  TOTAL:             {result['total_gb']} GB")
+    print()
+    print(verdict(result["total_gb"], args.gpu_vram_gb))
+    print()
+
+
+if __name__ == "__main__":
+    main()
