@@ -32,11 +32,27 @@ def estimate_training_memory_gb(
     lora_trainable_pct: float = 0.02,
     gradient_checkpointing: bool = False,
     attn_implementation: str = "flash",
+    base_dtype: str = None,
 ):
+    """
+    base_dtype: if set (e.g. "int4" for QLoRA), the BASE model weights are
+    stored at this precision, while the LoRA adapter's gradients and
+    optimizer state still use `dtype` (typically fp16/bf16). This models
+    QLoRA-style training, where the frozen base is quantized but the
+    trainable adapter runs at higher precision.
+    """
     bytes_per_param = BYTES_PER_DTYPE.get(dtype, 2)
     num_params = num_params_billion * 1e9
 
-    weights_gb = (num_params * bytes_per_param) / 1e9
+    weight_bytes_per_param = BYTES_PER_DTYPE.get(base_dtype, bytes_per_param) if base_dtype else bytes_per_param
+    weights_gb = (num_params * weight_bytes_per_param) / 1e9
+
+    if base_dtype and not lora:
+        raise ValueError(
+            "base_dtype (quantized base model) only makes sense with lora=True. "
+            "You can't meaningfully compute gradients through 4-bit/8-bit frozen "
+            "weights in a full fine-tune - that's what LoRA adapters are for."
+        )
 
     if lora:
         trainable_params = num_params * lora_trainable_pct
@@ -89,7 +105,7 @@ def verdict(total_gb: float, gpu_vram_gb: float, safety_margin: float = 0.9):
 def suggest_batch_size(
     num_params_billion, gpu_vram_gb, dtype="fp16", seq_len=2048,
     hidden_size=4096, num_layers=32, optimizer="adamw", lora=False,
-    gradient_checkpointing=False, safety_margin=0.9, max_search=256,
+    gradient_checkpointing=False, base_dtype=None, safety_margin=0.9, max_search=256,
 ):
     usable_vram = gpu_vram_gb * safety_margin
     best_fit = None
@@ -98,6 +114,7 @@ def suggest_batch_size(
             num_params_billion=num_params_billion, dtype=dtype, batch_size=bs,
             seq_len=seq_len, hidden_size=hidden_size, num_layers=num_layers,
             optimizer=optimizer, lora=lora, gradient_checkpointing=gradient_checkpointing,
+            base_dtype=base_dtype,
         )
         if result["total_gb"] <= usable_vram:
             best_fit = bs

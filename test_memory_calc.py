@@ -83,3 +83,26 @@ def test_flash_attention_uses_less_activation_memory_than_naive():
         num_params_billion=7, seq_len=16384, attn_implementation="naive",
     )
     assert flash["activations_gb"] < naive["activations_gb"]
+
+def test_qlora_uses_far_less_weight_memory_than_regular_lora():
+    """QLoRA (4-bit quantized base) should need much less memory for
+    the base model weights than regular LoRA (fp16 base) - this is
+    exactly what makes QLoRA able to fit large models on small GPUs."""
+    regular_lora = estimate_training_memory_gb(
+        num_params_billion=7, dtype="fp16", lora=True,
+    )
+    qlora = estimate_training_memory_gb(
+        num_params_billion=7, dtype="fp16", lora=True, base_dtype="int4",
+    )
+    assert qlora["weights_gb"] < regular_lora["weights_gb"]
+
+
+def test_base_dtype_without_lora_raises_error():
+    """Quantized base weights only make sense with LoRA - using
+    base_dtype without lora=True should raise a clear error, not
+    silently give a wrong answer."""
+    import pytest
+    with pytest.raises(ValueError):
+        estimate_training_memory_gb(
+            num_params_billion=7, lora=False, base_dtype="int4",
+        )

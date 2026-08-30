@@ -19,6 +19,7 @@ def main():
     p.add_argument("--lora", action="store_true")
     p.add_argument("--gradient-checkpointing", action="store_true")
     p.add_argument("--attn-implementation", default="flash", choices=["flash", "naive"], help="flash = memory-efficient attention (default, modern), naive = old-style full attention matrix")
+    p.add_argument("--base-dtype", default=None, choices=["fp32", "fp16", "bf16", "int8", "int4"], help="For QLoRA: quantized precision of the frozen base model (e.g. int4), separate from --dtype used for the adapter")
 
     args = p.parse_args()
 
@@ -47,6 +48,7 @@ def main():
         lora=args.lora,
         gradient_checkpointing=args.gradient_checkpointing,
         attn_implementation=args.attn_implementation,
+        base_dtype=args.base_dtype,
     )
 
     print("--- Memory Breakdown ---")
