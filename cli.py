@@ -1,5 +1,5 @@
 import argparse
-from memory_calc import estimate_training_memory_gb, verdict
+from memory_calc import estimate_training_memory_gb, verdict, suggest_batch_size
 
 
 def main():
@@ -13,7 +13,7 @@ def main():
     p.add_argument("--seq-len", type=int, default=2048)
     p.add_argument("--hidden-size", type=int, default=4096)
     p.add_argument("--num-layers", type=int, default=32)
-    p.add_argument("--optimizer", default="adamw", choices=["adamw", "sgd", "none"])
+    p.add_argument("--optimizer", default="adamw", choices=["adamw", "adamw_8bit", "sgd", "sgd_8bit", "none"])
     p.add_argument("--lora", action="store_true", help="Use LoRA fine-tuning instead of full fine-tune")
     p.add_argument("--gradient-checkpointing", action="store_true")
 
@@ -34,11 +34,29 @@ def main():
     print("\n--- Memory Breakdown ---")
     print(f"  Model weights:     {result['weights_gb']} GB")
     print(f"  Gradients:         {result['gradients_gb']} GB")
-    print(f"  Optimizer state:   {result['optimizer_gb']} GB")
+    print(f"  Optimizer state:   {result['optimizer_gb']} GB   (optimizer: {args.optimizer})")
     print(f"  Activations:       {result['activations_gb']} GB")
     print(f"  TOTAL:             {result['total_gb']} GB")
     print()
     print(verdict(result["total_gb"], args.gpu_vram_gb))
+
+    usable_vram = args.gpu_vram_gb * 0.9
+    if result["total_gb"] > usable_vram:
+        suggested = suggest_batch_size(
+            num_params_billion=args.params_billion,
+            gpu_vram_gb=args.gpu_vram_gb,
+            dtype=args.dtype,
+            seq_len=args.seq_len,
+            hidden_size=args.hidden_size,
+            num_layers=args.num_layers,
+            optimizer=args.optimizer,
+            lora=args.lora,
+            gradient_checkpointing=args.gradient_checkpointing,
+        )
+        if suggested:
+            print(f"Suggestion: try --batch-size {suggested} instead (largest size that fits).")
+        else:
+            print("Suggestion: even batch_size=1 doesn't fit. Try --lora, --gradient-checkpointing, a smaller dtype (e.g. int8), or an 8-bit optimizer (--optimizer adamw_8bit).")
     print()
 
 
