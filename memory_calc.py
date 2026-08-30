@@ -19,6 +19,10 @@ OPTIMIZER_BYTES_PER_PARAM = {
     "none": 0,
 }
 
+CUDA_CONTEXT_OVERHEAD_GB = 0.4
+FRAGMENTATION_OVERHEAD_PCT = 0.10
+ACTIVATION_UNCERTAINTY_PCT = 0.15
+
 
 def estimate_training_memory_gb(
     num_params_billion: float,
@@ -34,13 +38,6 @@ def estimate_training_memory_gb(
     attn_implementation: str = "flash",
     base_dtype: str = None,
 ):
-    """
-    base_dtype: if set (e.g. "int4" for QLoRA), the BASE model weights are
-    stored at this precision, while the LoRA adapter's gradients and
-    optimizer state still use `dtype` (typically fp16/bf16). This models
-    QLoRA-style training, where the frozen base is quantized but the
-    trainable adapter runs at higher precision.
-    """
     bytes_per_param = BYTES_PER_DTYPE.get(dtype, 2)
     num_params = num_params_billion * 1e9
 
@@ -92,6 +89,24 @@ def estimate_training_memory_gb(
     }
 
 
+def estimate_with_overhead(result: dict):
+    fixed_total = result["weights_gb"] + result["gradients_gb"] + result["optimizer_gb"]
+    act = result["activations_gb"]
+
+    act_low = act * (1 - ACTIVATION_UNCERTAINTY_PCT)
+    act_high = act * (1 + ACTIVATION_UNCERTAINTY_PCT)
+
+    low = (fixed_total + act_low) * (1 + FRAGMENTATION_OVERHEAD_PCT) + CUDA_CONTEXT_OVERHEAD_GB
+    point = (fixed_total + act) * (1 + FRAGMENTATION_OVERHEAD_PCT) + CUDA_CONTEXT_OVERHEAD_GB
+    high = (fixed_total + act_high) * (1 + FRAGMENTATION_OVERHEAD_PCT) + CUDA_CONTEXT_OVERHEAD_GB
+
+    return {
+        "low_gb": round(low, 2),
+        "point_gb": round(point, 2),
+        "high_gb": round(high, 2),
+    }
+
+
 def verdict(total_gb: float, gpu_vram_gb: float, safety_margin: float = 0.9):
     usable_vram = gpu_vram_gb * safety_margin
     if total_gb <= usable_vram:
@@ -100,6 +115,23 @@ def verdict(total_gb: float, gpu_vram_gb: float, safety_margin: float = 0.9):
     else:
         overflow = total_gb - usable_vram
         return f"Won't fit. Estimated {total_gb:.1f} GB needed, only ~{usable_vram:.1f} GB usable ({overflow:.1f} GB over)."
+
+
+def verdict_with_range(overhead_result: dict, gpu_vram_gb: float):
+    low, point, high = overhead_result["low_gb"], overhead_result["point_gb"], overhead_result["high_gb"]
+
+    if high <= gpu_vram_gb:
+        headroom = gpu_vram_gb - high
+        return f"Fits. Estimated {low:.1f}-{high:.1f} GB (best guess ~{point:.1f} GB) of {gpu_vram_gb:.1f} GB available ({headroom:.1f} GB headroom even in the worst case)."
+    elif low > gpu_vram_gb:
+        overflow = low - gpu_vram_gb
+        return f"Won't fit. Estimated {low:.1f}-{high:.1f} GB (best guess ~{point:.1f} GB) needed, only {gpu_vram_gb:.1f} GB available (at least {overflow:.1f} GB over, even in the best case)."
+    else:
+        return (
+            f"Borderline. Estimated {low:.1f}-{high:.1f} GB (best guess ~{point:.1f} GB) "
+            f"against {gpu_vram_gb:.1f} GB available. This could go either way in practice - "
+            f"try it, but be ready to lower the batch size by one notch if it OOMs."
+        )
 
 
 def suggest_batch_size(

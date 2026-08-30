@@ -58,7 +58,9 @@ def main():
     print(f"  Activations:       {result['activations_gb']} GB   (attention: {args.attn_implementation})")
     print(f"  TOTAL:             {result['total_gb']} GB")
     print()
-    print(verdict(result["total_gb"], args.gpu_vram_gb))
+    from memory_calc import estimate_with_overhead, verdict_with_range
+    overhead = estimate_with_overhead(result)
+    print(verdict_with_range(overhead, args.gpu_vram_gb))
 
     usable_vram = args.gpu_vram_gb * 0.9
     if result["total_gb"] > usable_vram:

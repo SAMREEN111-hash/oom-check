@@ -106,3 +106,16 @@ def test_base_dtype_without_lora_raises_error():
         estimate_training_memory_gb(
             num_params_billion=7, lora=False, base_dtype="int4",
         )
+
+def test_verdict_with_range_flags_borderline_cases():
+    """When the estimate range straddles the GPU's capacity, the tool
+    should say 'Borderline', not falsely claim certainty either way."""
+    from memory_calc import estimate_with_overhead, verdict_with_range
+    result = estimate_training_memory_gb(
+        num_params_billion=7, dtype="fp16", batch_size=4, seq_len=2048,
+        hidden_size=4096, num_layers=32, optimizer="adamw_8bit",
+        lora=True, gradient_checkpointing=True,
+    )
+    overhead = estimate_with_overhead(result)
+    v = verdict_with_range(overhead, gpu_vram_gb=21)
+    assert "Borderline" in v
